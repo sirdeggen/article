@@ -8,10 +8,12 @@ const CHAIN = (process.env.CHAIN as 'test' | 'main') || 'test'
 const STORAGE_URL = process.env.STORAGE_URL || 'https://store-us-1.bsvb.tech'
 const PRIVATE_KEY = process.env.PRIVATE_KEY!
 
-let walletInstance: WalletInterface | null = null
+let walletInstance: { wallet: WalletInterface; identityKey: string } | null = null
 
-export async function makeWallet(): Promise<WalletInterface> {
-  if (walletInstance) return walletInstance
+export async function makeWallet(): Promise<{ wallet: WalletInterface; identityKey: string }> {
+  if (walletInstance) {
+    return walletInstance
+  }
 
   if (!PRIVATE_KEY) {
     throw new Error('PRIVATE_KEY environment variable is required')
@@ -29,12 +31,12 @@ export async function makeWallet(): Promise<WalletInterface> {
   await client.makeAvailable()
   await storageManager.addWalletStorageProvider(client)
 
-  walletInstance = wallet
+  walletInstance = { wallet, identityKey: keyDeriver.identityKey }
   console.log('Wallet initialized. Identity key:', keyDeriver.identityKey)
   
-  return wallet
+  return walletInstance
 }
 
-export function getWallet(): WalletInterface | null {
+export function getWallet(): { wallet: WalletInterface; identityKey: string } | null {
   return walletInstance
 }

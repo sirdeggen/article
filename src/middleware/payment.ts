@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express'
-import { WalletInterface } from '@bsv/sdk'
+import { WalletInterface, Utils, Beef } from '@bsv/sdk'
 import { makeWallet } from '../wallet.js'
 
 declare global {
@@ -13,16 +13,22 @@ declare global {
   }
 }
 
-const BRC29_PROTOCOL = [2, '3241645161d8'] as const
+export function getServerIdentityKey() {
+  return cachedIdentityKey
+}
+
 const PAYMENT_HEADER_PREFIX = 'x-bsv-'
 
 console.log('✅ BSV Payment Middleware LOADED with strict header checking')
 
 let wallet: WalletInterface
+let cachedIdentityKey = ''
 
 async function initWallet() {
   if (!wallet) {
-    wallet = await makeWallet()
+    const { wallet: w, identityKey } = await makeWallet()
+    wallet = w
+    cachedIdentityKey = identityKey
   }
   return wallet
 }
@@ -44,16 +50,12 @@ export function createBsvPaymentMiddleware() {
     const hasPaymentHeader = req.headers[`${PAYMENT_HEADER_PREFIX}beef`]
     
     if (!hasPaymentHeader) {
-      // Return 402 with ONLY the two headers specified (no body)
-      const identityResult = await wallet.getPublicKey({ identityKey: true })
-      const serverIdentityKey = typeof identityResult === 'string' ? identityResult : identityResult.publicKey || identityResult
-      
       console.log('Returning 402 with payment headers for:', req.path)
       res.set({
         [`${PAYMENT_HEADER_PREFIX}sats`]: '100',
-        [`${PAYMENT_HEADER_PREFIX}server`]: serverIdentityKey
+        [`${PAYMENT_HEADER_PREFIX}server`]: cachedIdentityKey
       })
-      
+       
       return res.status(402).end() // No body as requested
     }
 
@@ -63,28 +65,33 @@ export function createBsvPaymentMiddleware() {
       const beef = req.headers[`${PAYMENT_HEADER_PREFIX}beef`] as string
       const prefix = req.headers[`${PAYMENT_HEADER_PREFIX}prefix`] as string
       const suffix = req.headers[`${PAYMENT_HEADER_PREFIX}suffix`] as string
-      const outpoint = req.headers[`${PAYMENT_HEADER_PREFIX}outpoint`] as string
+      const vout = req.headers[`${PAYMENT_HEADER_PREFIX}vout`] as string
 
       // Check for presence of ALL required headers
-      if (!sender || !beef || !prefix || !suffix || !outpoint) {
+      if (!sender || !beef || !prefix || !suffix || !vout) {
         return res.status(400).json({ 
           error: 'Missing required payment headers',
-          required: ['sender', 'beef', 'prefix', 'suffix', 'outpoint']
+          required: ['sender', 'beef', 'prefix', 'suffix', 'vout']
         })
       }
 
-      // Parse outpoint in format <txid>.<vout>
-      const [txid, voutStr] = outpoint.split('.')
-      const vout = parseInt(voutStr)
-      if (!txid || isNaN(vout)) {
-        return res.status(400).json({ error: 'Invalid outpoint format, expected txid.vout' })
-      }
+      console.log('Payment headers present, validating...', {
+        sender,
+        beef: beef.substring(0, 50) + '...',
+        prefix,
+        suffix,
+        vout
+      })
+
+      const beefArr = Utils.toArray(beef, 'base64')
+      const beefObj = Beef.fromBinary(beefArr)
+      console.log(beefObj.toLogString())
       
       // Internalize the payment transaction
       await wallet.internalizeAction({
-        tx: Buffer.from(beef, 'base64'),
+        tx: beefArr,
         outputs: [{
-          outputIndex: vout,
+          outputIndex: Number.parseInt(vout),
           protocol: 'wallet payment',
           paymentRemittance: {
             derivationPrefix: prefix,

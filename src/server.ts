@@ -1,10 +1,14 @@
 import express from 'express'
+import cors from 'cors'
 import { createBsvPaymentMiddleware } from './middleware/payment.js'
 import { getAllArticles, getArticle } from './articles.js'
 
 const app = express()
 const PORT = 3000
 
+app.use(cors({
+  exposedHeaders: ['x-bsv-sats', 'x-bsv-server']
+}))
 app.use(express.json())
 
 const paymentMiddleware = createBsvPaymentMiddleware()
