@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express'
 import { WalletInterface, Utils, Beef } from '@bsv/sdk'
 import { makeWallet } from '../wallet.js'
+import { getArticle } from '../articles.js'
 
 declare global {
   namespace Express {
@@ -33,46 +34,50 @@ async function initWallet() {
   return wallet
 }
 
+function send402(res: Response, sats: number = 100) {
+  res.set({
+    [`${PAYMENT_HEADER_PREFIX}sats`]: String(sats),
+    [`${PAYMENT_HEADER_PREFIX}server`]: cachedIdentityKey
+  })
+  return res.status(402).end()
+}
+
 export function createBsvPaymentMiddleware() {
   return async (req: Request, res: Response, next: NextFunction) => {
-    // Initialize wallet on first request
-    if (!wallet) {
-      await initWallet()
-    }
-
-    const isArticleRoute = req.path.startsWith('/articles/')
-    
-    // Free routes
-    if (!isArticleRoute && req.path !== '/articles') {
-      return next()
-    }
-
-    const hasPaymentHeader = req.headers[`${PAYMENT_HEADER_PREFIX}beef`]
-    
-    if (!hasPaymentHeader) {
-      console.log('Returning 402 with payment headers for:', req.path)
-      res.set({
-        [`${PAYMENT_HEADER_PREFIX}sats`]: '100',
-        [`${PAYMENT_HEADER_PREFIX}server`]: cachedIdentityKey
-      })
-       
-      return res.status(402).end() // No body as requested
-    }
-
-    // Has payment headers - STRICT validation (all 5 headers required)
     try {
+      // Initialize wallet on first request
+      if (!wallet) {
+        await initWallet()
+      }
+
+      const isArticleRoute = req.path.startsWith('/articles/')
+      
+      // Free routes
+      if (!isArticleRoute && req.path !== '/articles') {
+        return next()
+      }
+
+      const slug = req.path.replace('/articles/', '')
+      const article = getArticle(slug)
+      const price = article?.price ?? 100
+
+      const hasPaymentHeader = req.headers[`${PAYMENT_HEADER_PREFIX}beef`]
+      
+      if (!hasPaymentHeader) {
+        console.log('Returning 402 with payment headers for:', req.path, `(${price} sats)`)
+        return send402(res, price)
+      }
+
+      // Has payment headers - STRICT validation (all 5 headers required)
       const sender = req.headers[`${PAYMENT_HEADER_PREFIX}sender`] as string
       const beef = req.headers[`${PAYMENT_HEADER_PREFIX}beef`] as string
       const prefix = req.headers[`${PAYMENT_HEADER_PREFIX}prefix`] as string
       const suffix = req.headers[`${PAYMENT_HEADER_PREFIX}suffix`] as string
       const vout = req.headers[`${PAYMENT_HEADER_PREFIX}vout`] as string
 
-      // Check for presence of ALL required headers
       if (!sender || !beef || !prefix || !suffix || !vout) {
-        return res.status(400).json({ 
-          error: 'Missing required payment headers',
-          required: ['sender', 'beef', 'prefix', 'suffix', 'vout']
-        })
+        console.warn('Missing required payment headers, returning 402')
+        return send402(res)
       }
 
       console.log('Payment headers present, validating...', {
@@ -108,10 +113,7 @@ export function createBsvPaymentMiddleware() {
       next()
     } catch (error) {
       console.error('Payment validation failed:', error)
-      res.status(400).json({ 
-        error: 'Invalid payment',
-        message: error instanceof Error ? error.message : 'Unknown error'
-      })
+      return send402(res)
     }
   }
 }
