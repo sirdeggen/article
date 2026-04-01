@@ -15,12 +15,13 @@ app.use(express.static(path.join(import.meta.dirname, '..')))
 
 const paymentMiddleware = createBsvPaymentMiddleware()
 
-function pageShell(title: string, body: string) {
+function pageShell(title: string, body: string, baseUrl?: string) {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  ${baseUrl ? `<base href="${baseUrl}">` : ''}
   <title>${title}</title>
   <meta name="color-scheme" content="light dark">
   <style>
@@ -128,7 +129,8 @@ app.get('/articles/:slug', paymentMiddleware, (req, res) => {
       </footer>
     </article>`
 
-  res.send(pageShell(article.title, body))
+  const baseUrl = `${req.protocol}://${req.get('host')}/`
+  res.send(pageShell(article.title, body, baseUrl))
 })
 
 app.listen(PORT, () => {
