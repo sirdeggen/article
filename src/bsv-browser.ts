@@ -5,6 +5,10 @@ const PAYMENT_HEADER_PREFIX = 'x-bsv-'
 
 const paidCache = new Set<string>()
 
+export function clearPaidCache() {
+  paidCache.clear()
+}
+
 export function create402Fetcher(wallet: WalletInterface) {
   return async (url: string, init: RequestInit = {}) => {
     const key = url
